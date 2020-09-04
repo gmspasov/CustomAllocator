@@ -1,0 +1,14 @@
+# depslib dependency file v1.0
+1599241275 source:e:\c++\customallocator\customallocator.cpp
+	"CustomAllocator.h"
+	<iostream>
+	<bits/stdc++.h>
+
+1599241143 e:\c++\customallocator\customallocator.h
+	<iostream>
+
+1599244146 source:e:\c++\customallocator\main.cpp
+	<chrono>
+	<iostream>
+	"CustomAllocator.h"
+
