@@ -12,3 +12,16 @@
 	<iostream>
 	"CustomAllocator.h"
 
+1600776757 source:e:\smartgitgithub\main.cpp
+	<chrono>
+	<iostream>
+	"CustomAllocator.h"
+
+1600776855 e:\smartgitgithub\customallocator.h
+	<iostream>
+
+1600769702 source:e:\smartgitgithub\customallocator.cpp
+	"CustomAllocator.h"
+	<iostream>
+	<bits/stdc++.h>
+

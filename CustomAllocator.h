@@ -11,28 +11,34 @@ class CustomAllocator
     * \author Georgi Spasov
     * e-mail : gmspasov@uni-sofia.bg | gecta13@gmail.com
     * on 04.09.2020 20:35 as System Programming Seminar project.
-    *Custom allocator using Buddy Algorithm for big allocations,
-    *for small allocations it is prepared for the implementation of
-    *slab allocator algorithm BUT IT HAS NOT BEEN IMPLEMENTED yet.
-    *Buddy memory allocation : https://en.wikipedia.org/wiki/BuddyMemoryAllocation
-    *Slab memory allocation : https://en.wikipedia.org/wiki/SlabAllocation
-    *Briefly this implementation of buddy allocator is following the classical idea.
-    *It operates with a block allocated at first with malloc()
-    *and when request of certain size of memory comes the block is divided (split) in
-    *power of two sized blocks with the suitable size (if there is enough free memory) and
-    *then pointer to that certain free block is returned (for 595 bytes it would be block with 1024 bytes).
-    *There is limit of how small block can be to be allocated and there is bookkeeping in which is written
-    *which are the free blocks or those who have been split (a block of 2048 can be divided in two of 1024
-    *in order to avoid losses. Deallocation also is provided. The information of the bookkeeping is written
-    *inside the block (at the beginning), I decided to choose the limit of how small allocatable block to have
-    *with the mind of that the information of the bookkeeping to fit in no more than 2 block with minimal size.
-    *If the size of the whole block is not power of two - the bookkeeping works with illusion, for it the size
-    *always a power of two (the difference between the two sizes is said to be constantly allocated). When a
-    *block is split the left "buddy" is allocated and the right is put in the corresponding list of free blocks
-    *of that level (with that size). Blocks are identified by indexes.In every block is written its next and
-    * PREVIOUS free block in free list. Previous is needed when block is removed.
-    * For more information you can use:
-    *the Internet, C++ conferences and the video provided by my university professors :
+    *
+    *Last modification 22.09.2020 by Georgi Spasov.
+    *
+    * Custom allocator using Buddy Algorithm for big allocations,
+    * for small allocations it is prepared for the implementation of
+    * slab allocator algorithm BUT IT HAS NOT BEEN IMPLEMENTED yet.
+    * Buddy memory allocation : https://en.wikipedia.org/wiki/BuddyMemoryAllocation
+    * Slab memory allocation : https://en.wikipedia.org/wiki/SlabAllocation
+    * Briefly this implementation of buddy allocator is following the classical idea.
+    * It operates with a block allocated at first with malloc()
+    * and when request of certain size of memory comes the block is divided (split) in
+    * power of two sized blocks with the suitable size (if there is enough free memory) and
+    * then pointer to that certain free block is returned (for 595 bytes it would be block with
+    * 1024 bytes).There is limit of how small block can be to be allocated and there is bookkeeping
+    * in which is written which are the free blocks or those who have been split (a block of 2048
+    * can be divided in two of 1024 in order to avoid losses. Deallocation also is provided. The
+    * information of the bookkeeping is written inside the block (at the beginning), I decided to
+    * choose the limit of how small allocatable block to have with the mind of that the information
+    * of the bookkeeping to fit in no more than 2 block with minimal size.
+    * If the size of the whole block is not power of two - the bookkeeping works with illusion, for
+    * it the size always a power of two (the difference between the two sizes is said to be constantly
+    * allocated). When a block is split the left "buddy" is allocated and the right is put in the
+    * corresponding list of free blocks of that level (with that size). Blocks are identified by
+    * indexes.In every block is written its next and PREVIOUS free block in free list. Previous is
+    * needed when block is removed.
+    *
+    * For more information you can see:
+    * the Internet, C++ conferences and the video provided by my university professors :
     *https://www.youtube.com/watch?v=xXvyn6Oz7gI (in Bulgarian).I've used also information from
     *en.cppreference.com, www.geeksforgeeks.org, www.quora.com and stackoverflow.com.
     */
@@ -57,7 +63,8 @@ public:
         return wholeBlockStartAccordingToBookkeeping_;
     }
 
-    /** Access wholeBlockSizeExponent_ - the closest larger exponent of two that is bigger than wholeBlockSize
+    /** Access wholeBlockSizeExponent_ - the closest larger exponent of two
+    * that is bigger than wholeBlockSize
     * \return The value of wholeBlockSizeExponent_
     */
     unsigned short wholeBlockSizeExponent() const
@@ -145,13 +152,17 @@ public:
     *\param unsigned short exponent
     * \return The index of the block
     */
-    size_t get_indexOfFirstOfLevel(void** blockAddress, unsigned short exponent) const
+    size_t get_blockIndex(void** blockAddress, unsigned short exponent) const
     {
         if(blockAddress==NULL)
         {
             return lastIndex_+1;
         }
-        return ((get_indexOfFirstOfLevel(wholeBlockSizeExponent_-exponent)) + (((size_t)(blockAddress-wholeBlockStartAccordingToBookkeeping_))*c_pointerSize)/(powerOfTwo(exponent)));
+        unsigned level=wholeBlockSizeExponent_ - exponent;
+        size_t indexOfFirstOfTheLevel=get_indexOfFirstOfLevel(level);
+        size_t blockOffset = (size_t)(blockAddress-wholeBlockStartAccordingToBookkeeping_);
+        blockOffset*=c_pointerSize;
+        return (indexOfFirstOfTheLevel + blockOffset/(powerOfTwo(exponent)));
     }
 
     /** Access to the index of the first block of level level
@@ -167,9 +178,15 @@ public:
     *\param void** pointer
     * \return The index of the block
     */
-    size_t get_indexOfFirstOfLevel(void** pointer) const
+    size_t get_blockIndex(void** pointer) const
     {
-        size_t indexOfTheLeafOfTheBranch=((c_pointerSize*((size_t)(pointer-wholeBlockStartAccordingToBookkeeping_))/(smallestAllocatableBlockSizeInBytes_))+powerOfTwo(numberOfLevels_-1)-1);
+        size_t blockOffset = (size_t)(pointer-wholeBlockStartAccordingToBookkeeping_);
+        blockOffset*=c_pointerSize;
+        size_t indexOfTheLeafOfTheBranch= blockOffset/smallestAllocatableBlockSizeInBytes_;
+        //index of the leaf
+        indexOfTheLeafOfTheBranch+= (powerOfTwo(numberOfLevels_-1)-1);
+        //indexes of leafs start at powerOfTwo(numberOfLevels_-1)-1
+
         size_t i=indexOfTheLeafOfTheBranch;
         // Goes to the leaf that corresponds to this address and find
         // the largest allocated block that contains this memory.
@@ -202,7 +219,9 @@ public:
     {
         unsigned short blockLevel = get_blockLevel(blockIndex);
         size_t startingBlockIndexOfTheLevel=get_indexOfFirstOfLevel(blockLevel);
-        return wholeBlockStartAccordingToBookkeeping_ + (blockIndex-startingBlockIndexOfTheLevel)*powerOfTwo(wholeBlockSizeExponent_-blockLevel)/c_pointerSize;
+        size_t blockSize = powerOfTwo(wholeBlockSizeExponent_ - blockLevel);
+        size_t blockIndexInTheLevel = blockIndex - startingBlockIndexOfTheLevel;
+        return wholeBlockStartAccordingToBookkeeping_+ (blockIndexInTheLevel*blockSize)/c_pointerSize;
     }
 
     /** Access to the size of a block by its index
@@ -224,8 +243,10 @@ public:
             return 0;
         size_t byteNumber=blockIndex/8; //in which byte in the free table bitfield is the block
         char byte = *(freeTableBitfield_+byteNumber); // the content of that byte
-        unsigned short blockIndexInByte=blockIndex%8; // which bit in the byte corresponds to the block
-        return ((byte >> blockIndexInByte) & 1U); //shifts the bit to be least significant and compare it with 00000001
+        unsigned short blockIndexInByte=blockIndex%8;
+        // which bit in the byte corresponds to the block
+        return ((byte >> blockIndexInByte) & 1U);
+        //shifts the bit to be least significant and compare it with 00000001
     }
 
     /** Access of the isSplit bit of a block by the index of the block
@@ -239,7 +260,8 @@ public:
         size_t byteNumber=blockIndex/8;//in which byte in the split table bitfield is the block
         char byte = *(splitTableBitfield_+byteNumber);// the content of that byte
         unsigned short blockIndexInByte=blockIndex%8;//which bit in the byte corresponds to the block
-        return ((byte >> blockIndexInByte) & 1U);//shifts the bit to be least significant and compare it with 00000001
+        return ((byte >> blockIndexInByte) & 1U);
+        //shifts the bit to be least significant and compare it with 00000001
     }
 
     /** Check if there is a free block with that size (size in the form of exponent of two)
@@ -247,7 +269,8 @@ public:
     */
     bool isThereFreeBlock(unsigned short exponent) const
     {
-        return (*(splitTableOffset_+(wholeBlockSizeExponent_- exponent))!=NULL);//if the pointer of the first free of the level is not null
+        return (*(splitTableOffset_+(wholeBlockSizeExponent_- exponent))!=NULL);
+        //if the pointer of the first free of the level is not null
         //wholeBlockSizeExponent_-exponent = blockLevel
     }
 
@@ -354,7 +377,9 @@ private:
     void set_freeTableOffset()
     {
         size_t used_bytes_number=(lastIndex_+1)/8;
-        freeTableOffset_=wholeBlockStart_+((used_bytes_number+(used_bytes_number%smallestAllocatableBlockSizeInBytes_))/(smallestAllocatableBlockSizeInBytes_*c_pointerSize));
+        used_bytes_number+=(used_bytes_number%smallestAllocatableBlockSizeInBytes_);
+        size_t offset=(used_bytes_number/smallestAllocatableBlockSizeInBytes_)*c_pointerSize;
+        freeTableOffset_=wholeBlockStart_ + offset;
     }
 
     /** set of freeTableOffset
@@ -370,7 +395,9 @@ private:
     void set_splitTableOffset()
     {
         size_t used_bytes_number=(lastIndex_+1)/16;
-        splitTableOffset_=freeTableOffset_+((used_bytes_number+(used_bytes_number%smallestAllocatableBlockSizeInBytes_))/(smallestAllocatableBlockSizeInBytes_*c_pointerSize));
+        used_bytes_number+=(used_bytes_number%smallestAllocatableBlockSizeInBytes_);
+        size_t offset=(used_bytes_number/smallestAllocatableBlockSizeInBytes_)*c_pointerSize;
+        splitTableOffset_=freeTableOffset_+ offset;
     }
 
     /** set of splitTableOffset
@@ -390,12 +417,14 @@ private:
 
     /** set of smallestAllocatableBlockSizeExponent - calculation done inside
     * the value is chosen to be such in order to use maximum two leafs
-    * for the bookkeeping - without taking in mind that there could be non-bitfield or non-pointer offset
+    * for the bookkeeping - without taking in mind that there could be non-bitfield or non-pointer
+    * offset
     */
     void set_smallestAllocatableBlockSizeExponent()
     {
         if(wholeBlockSizeExponent_%2==0)
-            smallestAllocatableBlockSizeExponent_ = (wholeBlockSizeExponent_-2)/2; //the size is chosen
+            smallestAllocatableBlockSizeExponent_ = (wholeBlockSizeExponent_-2)/2;
+//the size is chosen
 //to be such in order to be used no more than 2 blocks for the free and split tables offsets
         else
             smallestAllocatableBlockSizeExponent_ = (wholeBlockSizeExponent_-1)/2;
@@ -503,7 +532,8 @@ private:
 //
 
 
-    /** First initialize - decides whether buddy with slab allocator will be used or only slab allocator and
+    /** First initialize - decides whether buddy with slab allocator will be used or
+    * only slab allocator and calls further initializers
     */
     void initialize();
 
@@ -513,7 +543,8 @@ private:
     void initializeBuddy();
 
     /** Allocates memory and initialize the bitfields for the bookkeeping
-    * @param size_t usedLeafsNumber - how much leafs (block with smallest allocatable size) are necessary
+    * @param size_t usedLeafsNumber - how much leafs (block with smallest allocatable size)
+    * are necessary
     */
     void allocateMemoryForTheBookkeeping(size_t usedLeafsNumber);
 
@@ -534,14 +565,16 @@ private:
 public:
 
     /** Allocates a block with at least newAllocationSize
-    * finds the exponent of the closest larger power of two than the requested block size and returns a pointer with block with this size
+    * finds the exponent of the closest larger power of two than the requested block size
+    * and returns a pointer with block with this size
     *\param size_t newAllocationSize - the requested block size
     *\return void* pointer to the allocated memory
     */
     void* allocate(size_t newAllocationSize);
 
     /** Deallocates the block on address pointer
-    * uses indexOfAllocatedByPointer(pointer) to find which is the allocated block containing this address
+    * uses indexOfAllocatedByPointer(pointer) to find which is the allocated block containing
+    * this address
     *\param void* pointer - pointer to the memory that has to be deallocated
     *\return bool if memory was deallocated
     */
@@ -551,7 +584,8 @@ private:
 
     /** Called by allocate
     *allocates block with powerOfTwo(newAllocation_Exponent) size
-    *\param size_t newAllocationSizeExponent - the exponent of the closest larger power of two than the requested block size
+    *\param size_t newAllocationSizeExponent - the exponent of the closest larger power of two than
+    * the requested block size
     *\return void* pointer to the allocated memory
     */
     void* allocateExponentSize(unsigned short newAllocationSizeExponent);
@@ -562,8 +596,8 @@ private:
     void split(unsigned short level);
 
     /** Called by allocateExponentSize
-    * splits blocks upward until there is a free block with the certain size (newAllocationSizeexponent)
-    * and then calls allocateExponentSize
+    * splits blocks upward until there is a free block with the certain size
+    * (newAllocationSizeExponent) and then calls allocateExponentSize
     *\param size_t newAllocationSizeExponent - the requested block size
     *\return void* pointer to the allocated memory
     */
@@ -572,14 +606,15 @@ private:
 
 
     /** Called by deallocate
-    * checks if the buddies can be coalesced or only to add the newly deallocated block to the free list of its level
-    * and then calls the needed function
+    * checks if the buddies can be coalesced or only to add the newly deallocated block to
+    * the free list of its level and then calls the needed function
     *\param size_t blockIndex - the index of the deallocated block
     */
     void coalesceOrAddToTheFreeList(size_t blockIndex);
 
     /** Called by coalesceOrAddToTheFreeList
-    * Coalesce the buddies, removes them from the free list of their level and add their parent to this list
+    * Coalesce the buddies, removes them from the free list of their level and add their parent
+    * to this list
     *\param size_t leftBuddyIndex - the index of the left buddy
     */
     void coalesce(size_t leftBuddyIndex);
@@ -594,14 +629,18 @@ private:
     void** splitTableOffset_; //!< Member variable "splitTableOffset"
     void** bookkeepingOffset_; //!< Member variable "bookkeepingOffset"
     void** wholeBlockStart_; //!< Member variable "wholeBlockStart"
-    void** wholeBlockStartAccordingToBookkeeping_; //!< Member variable "wholeBlockStartAccordingToBookkeeping"
+    void** wholeBlockStartAccordingToBookkeeping_;
+    //!< Member variable "wholeBlockStartAccordingToBookkeeping"
     char* freeTableBitfield_; //!< Member variable "freeTableBitfield"
     char* splitTableBitfield_; //!< Member variable "splitTableBitfield"
     size_t wholeBlockSize_; //!< Member variable "wholeBlockSize"
-    size_t wholeBlockSizeAccordingToBookkeeping_; //!< Member variable "wholeBlockSizeAccordingToBookkeeping"
+    size_t wholeBlockSizeAccordingToBookkeeping_;
+    //!< Member variable "wholeBlockSizeAccordingToBookkeeping"
     unsigned short wholeBlockSizeExponent_; //!< Member variable "wholeBlockSizeExponent_"
-    unsigned short smallestAllocatableBlockSizeExponent_; //!< Member variable "smallestAllocatableBlockSizeexponent"
-    size_t smallestAllocatableBlockSizeInBytes_;//!< Member variable "smallestAllocatableBlockSizeInBytes"
+    unsigned short smallestAllocatableBlockSizeExponent_;
+    //!< Member variable "smallestAllocatableBlockSizeExponent"
+    size_t smallestAllocatableBlockSizeInBytes_;
+    //!< Member variable "smallestAllocatableBlockSizeInBytes"
     unsigned short numberOfLevels_; //!< Member variable "numberOfLevels"
     bool pureSlab_;  //!< Member variable "pureSlab"
     size_t lastIndex_; //!< Member variable "lastIndex"

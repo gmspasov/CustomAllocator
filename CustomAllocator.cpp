@@ -7,7 +7,20 @@ using namespace std;
 /** Default constructor */
 CustomAllocator::  CustomAllocator(size_t size)
 {
-    wholeBlockStart_ = (void**) malloc(size);
+    unsigned short buddyMinimumSize= powerOfTwo(get_closestLargerExponent(2*c_pointerSize)+6);
+    if(size<buddyMinimumSize)
+    {
+        cout<<endl<<"The size that has been chosen is too small. Instead the number of used bytes is "
+            <<buddyMinimumSize<<endl;
+        size=buddyMinimumSize;
+    }
+    //temporary until slab allocator is implemented
+
+    if(!(wholeBlockStart_ = (void**) malloc(size)))
+    {
+        cout<<"Error: Not enough free memory in the system - malloc didn't succeed. "<<endl;
+        throw bad_alloc(); //if malloc does not succeed
+    }
     set_wholeBlockSize(size);
     initialize();
 }
@@ -31,7 +44,8 @@ void CustomAllocator:: removeBlockFromTheFreeListIndex(size_t blockIndex)
     void** blockAddress=get_blockAddress(blockIndex);
     unsigned short blockLevel=get_blockLevel(blockIndex);
 
-    if(blockAddress==get_addressOfTheFirstFreeBlockOfLevel(blockLevel)) // the pointer will be updated in the removeTheFirstBlock...
+    if(blockAddress==get_addressOfTheFirstFreeBlockOfLevel(blockLevel))
+        // the pointer will be updated in the removeTheFirstBlock...
         removeTheFirstBlockInTheFreeListAndReturnItsIndex(blockLevel);
     else
     {
@@ -45,19 +59,19 @@ void CustomAllocator:: removeBlockFromTheFreeListIndex(size_t blockIndex)
     }
 }
 
-unsigned short CustomAllocator ::  howManyLevelsUpwardIsTheFreeLargerBlock(unsigned short newAllocationSizeExponent)
+unsigned short CustomAllocator ::  howManyLevelsUpwardIsTheFreeLargerBlock(unsigned short exponent)
 {
     //used when split is needed (there is no free block with the requested size
-    if(newAllocationSizeExponent>=wholeBlockSizeExponent_)
+    if(exponent>=wholeBlockSizeExponent_)
         return 0;
 
     unsigned short howManyLevelsUpward=1;
     bool weReachedBiggerAndFree=0;
-    unsigned short howManyLevelsUpwardAreThere = wholeBlockSizeExponent_-newAllocationSizeExponent;
+    unsigned short howManyLevelsUpwardAreThere = wholeBlockSizeExponent_-exponent;
 
     while(!weReachedBiggerAndFree && howManyLevelsUpward<howManyLevelsUpwardAreThere)
     {
-        weReachedBiggerAndFree=isThereFreeBlock(newAllocationSizeExponent+howManyLevelsUpward);
+        weReachedBiggerAndFree=isThereFreeBlock(exponent+howManyLevelsUpward);
         howManyLevelsUpward+=!weReachedBiggerAndFree;
     }
 
@@ -71,39 +85,39 @@ void CustomAllocator:: addBlockInTheFreeList(size_t blockIndex)
 {
     void** blockAddress=get_blockAddress(blockIndex);
     unsigned short blockLevel=get_blockLevel(blockIndex);
-    void** addressOfCurrentFirstInTheListOfThisLevel=get_addressOfTheFirstFreeBlockOfLevel(blockLevel);
+    void** addressOfCurrentFirstInTheListOfLevel=get_addressOfTheFirstFreeBlockOfLevel(blockLevel);
 
-    if(addressOfCurrentFirstInTheListOfThisLevel==NULL)
-    {
+    if(addressOfCurrentFirstInTheListOfLevel==NULL)
         *(blockAddress)=NULL; //sets next because there was no free of this level until now
-    }
     else
     {
-        *(addressOfCurrentFirstInTheListOfThisLevel+1)=blockAddress; //sets previous
-        *blockAddress=addressOfCurrentFirstInTheListOfThisLevel; //sets next
+        *(addressOfCurrentFirstInTheListOfLevel+1)=blockAddress; //sets previous
+        *blockAddress=addressOfCurrentFirstInTheListOfLevel; //sets next
     }
 
     *(blockAddress+1)=NULL; //sets previous
-    set_thePointerToTheFirstFreeBlockOfLevel(blockLevel, blockAddress); //sets the pointer of the first free
+    set_thePointerToTheFirstFreeBlockOfLevel(blockLevel, blockAddress);
+    //sets the pointer of the first free
     set_allocated(blockIndex,false);
     set_split(blockIndex,false);
 }
 
 size_t CustomAllocator:: removeTheFirstBlockInTheFreeListAndReturnItsIndex(unsigned short blockLevel)
 {
-    void** addressOfTheCurrentFirstInTheListOfThisLevel=get_addressOfTheFirstFreeBlockOfLevel(blockLevel);
-    if(addressOfTheCurrentFirstInTheListOfThisLevel==NULL)
+    void** addressOfCurrentFirstInTheListOfLevel=get_addressOfTheFirstFreeBlockOfLevel(blockLevel);
+    if(addressOfCurrentFirstInTheListOfLevel==NULL)
         return lastIndex_+1; // error code
 
     //wholeBlockSizeExponent_-blockSizeExponent is the same as blockLevel
-    size_t blockIndexOfTheFirstFreeOfThisLevel = get_indexOfFirstOfLevel(addressOfTheCurrentFirstInTheListOfThisLevel,wholeBlockSizeExponent_-blockLevel);
-    void ** addressOfNext = (void**)*(addressOfTheCurrentFirstInTheListOfThisLevel);
+    unsigned short exponent=wholeBlockSizeExponent_-blockLevel;
+    size_t blockIndexOfFirstFreeOfLevel=get_blockIndex(addressOfCurrentFirstInTheListOfLevel,exponent);
+    void ** addressOfNext = (void**)*(addressOfCurrentFirstInTheListOfLevel);
     if(addressOfNext!=NULL)//if it is NULL error will occur
         *(addressOfNext+1)=NULL;//previous of next, which will become first now is set to NULL
 
     set_thePointerToTheFirstFreeBlockOfLevel(blockLevel, addressOfNext);
-    set_allocated(blockIndexOfTheFirstFreeOfThisLevel,true);
-    return blockIndexOfTheFirstFreeOfThisLevel; //used in split function
+    set_allocated(blockIndexOfFirstFreeOfLevel,true);
+    return blockIndexOfFirstFreeOfLevel; //used in split function
 }
 
 //
@@ -113,12 +127,13 @@ size_t CustomAllocator:: removeTheFirstBlockInTheFreeListAndReturnItsIndex(unsig
 void CustomAllocator:: initialize()
 {
     set_wholeBlockSizeExponent();
-    unsigned short buddyMinimumSizeExponentAccordingToMachineWord=(powerOfTwo(get_closestLargerExponent(2*c_pointerSize)-1))*2+6;
-    //this value is chosen in order to use less percentage of the block for its bookkeeping and
-    // the smallest blocks to be at least two times bigger than the size of a pointer
+    unsigned short buddyMinimumSizeExponent= get_closestLargerExponent(2*c_pointerSize)+6;
+    // this value is chosen in order to use less percentage of the block for its bookkeeping and
+    // the smallest blocks to be at least two times bigger than the size of a pointer/machine word
+    // so the size is calculated using the size of the machine word
 
     cout<<"Information about the constructed CustomAllocator: "<<endl;
-    if(wholeBlockSizeExponent_>=buddyMinimumSizeExponentAccordingToMachineWord)
+    if(wholeBlockSizeExponent_>=buddyMinimumSizeExponent)
     {
         cout<<"Buddy Allocator is used."<<endl;
         initializeBuddy();
@@ -135,27 +150,29 @@ void CustomAllocator:: initialize()
 void CustomAllocator:: initializeBuddy()
 {
     set_wholeBlockSizeAccordingToBookkeeping();
-    wholeBlockStartAccordingToBookkeeping_ = wholeBlockStart_-(size_t)((wholeBlockSizeAccordingToBookkeeping_-wholeBlockSize_)/c_pointerSize);
+    size_t offset= (size_t)((wholeBlockSizeAccordingToBookkeeping_-wholeBlockSize_)/c_pointerSize);
+    wholeBlockStartAccordingToBookkeeping_ = wholeBlockStart_ - offset;
     set_smallestAllocatableBlockSizeExponent();
     set_smallestAllocatableBlockSizeInBytes();
     set_numberOfLevels();
     set_lastIndex();
 
-    size_t offsetSize=(size_t)(wholeBlockStart_ - wholeBlockStartAccordingToBookkeeping_)*c_pointerSize;
-    size_t usedBytes=offsetSize;
+    size_t usedBytes=(size_t)(wholeBlockStart_- wholeBlockStartAccordingToBookkeeping_)*c_pointerSize;
     size_t realUsedBytes=0;// used only for cout some data
     realUsedBytes+=initialiseTheBitfieldsAndReturnTheUsedBytes();
     realUsedBytes+=set_bookkeepingOffsetAndReturnTheUsedBytes();
     initialiseThePointers();
     usedBytes+=realUsedBytes;
     size_t additionToFillTheBlock=smallestAllocatableBlockSizeInBytes_-usedBytes%smallestAllocatableBlockSizeInBytes_;
-    usedBytes+=additionToFillTheBlock;//because - division of integers -> 7/2=3 but I've used 4 blocks
+    usedBytes+=additionToFillTheBlock;
+    //because - division of integers -> 7/2=3 but I've used 4 blocks
     realUsedBytes+=additionToFillTheBlock;
 
     //cout the info about the constructed block
 
     cout<<"There are " <<numberOfLevels_<<" levels."<<endl
-        <<"The smallest allocatable block size is "<<(smallestAllocatableBlockSizeInBytes_)<<" bytes."
+        <<"The smallest allocatable block size is "<<(smallestAllocatableBlockSizeInBytes_)
+        <<" bytes."
         <<endl<<"The used memory for the bookkeeping is "<<realUsedBytes<< " bytes of the "
         <<wholeBlockSize_<<" bytes "<<endl<<"which is "<< (wholeBlockSize_/realUsedBytes)
         <<" times smaller than the whole block size."<<endl;
@@ -178,7 +195,8 @@ void CustomAllocator:: allocateMemoryForTheBookkeeping(size_t usedLeafsNumber)
     bool oddNumber=usedLeafsNumber%2;
 
     if(oddNumber)
-        addBlockInTheFreeList(indexOfFirstLeaf+usedLeafsNumber);//the right buddy has not been allocated
+        addBlockInTheFreeList(indexOfFirstLeaf+usedLeafsNumber);
+    //the right buddy has not been allocated
 
     size_t blocksInvolvedOnThisLevel=usedLeafsNumber/2+oddNumber; //division of integers
 
@@ -193,7 +211,8 @@ void CustomAllocator:: allocateMemoryForTheBookkeeping(size_t usedLeafsNumber)
 
         oddNumber=blocksInvolvedOnThisLevel%2;
         if(oddNumber)
-            addBlockInTheFreeList(indexOfFirstOfThisLevel+blocksInvolvedOnThisLevel);//the right buddy has not been allocated
+            addBlockInTheFreeList(indexOfFirstOfThisLevel+blocksInvolvedOnThisLevel);
+        //the right buddy has not been allocated
 
         blocksInvolvedOnThisLevel/=2;
         blocksInvolvedOnThisLevel+=oddNumber;
@@ -262,7 +281,8 @@ void* CustomAllocator:: allocateExponentSize(unsigned short newAllocationSizeExp
         size_t blockIndex = removeTheFirstBlockInTheFreeListAndReturnItsIndex(blockLevel);
         set_allocated(blockIndex,true);
         set_split(blockIndex,false);
-        memset(pointerToTheNewAllocatedMemory,0,powerOfTwo(newAllocationSizeExponent));//sets the bits in the newly allocated block to 0
+        memset(pointerToTheNewAllocatedMemory,0,powerOfTwo(newAllocationSizeExponent));
+        //sets the bits in the newly allocated block to 0
         //cout<<"Successful allocation of "<<powerOfTwo(newAllocationSizeExponent)<<" bytes."<<endl;
         return pointerToTheNewAllocatedMemory;
     }
@@ -275,20 +295,23 @@ void CustomAllocator:: split(unsigned short level)
 
     if(indexOfTheBlockBeingSplit<lastIndex_+1)
     {
-        set_split(indexOfTheBlockBeingSplit,true);//remove the block that is being split from the free list and mark it as split
+        set_split(indexOfTheBlockBeingSplit,true);
+        //remove the block that is being split from the free list and mark it as split
         set_allocated(indexOfTheBlockBeingSplit,true);
         set_split(indexOfTheBlockBeingSplit*2+1,false);//now sets info about the two new buddies
         set_split(indexOfTheBlockBeingSplit*2+2,false);
         set_allocated(indexOfTheBlockBeingSplit*2+1,false);
         set_allocated(indexOfTheBlockBeingSplit*2+2,false);
-        addBlockInTheFreeList(indexOfTheBlockBeingSplit*2+2); //put the right buddy at the start of the list
-        addBlockInTheFreeList(indexOfTheBlockBeingSplit*2+1); //put the left buddy at the start of the list so the right become second in the list
+        addBlockInTheFreeList(indexOfTheBlockBeingSplit*2+2);
+        //put the right buddy at the start of the list
+        addBlockInTheFreeList(indexOfTheBlockBeingSplit*2+1);
+        //put the left buddy at the start of the list so the right become second in the list
     }
 }
 
-void* CustomAllocator:: splitUntilThereIsAFreeBlockWithThisSize(unsigned short newAllocationSizeExponent)
+void* CustomAllocator:: splitUntilThereIsAFreeBlockWithThisSize(unsigned short exponent)
 {
-    unsigned short howManyLevelsUpward=howManyLevelsUpwardIsTheFreeLargerBlock(newAllocationSizeExponent);
+    unsigned howManyLevelsUpward=howManyLevelsUpwardIsTheFreeLargerBlock(exponent);
 
     try
     {
@@ -300,15 +323,17 @@ void* CustomAllocator:: splitUntilThereIsAFreeBlockWithThisSize(unsigned short n
         }
 
         for(unsigned short i=howManyLevelsUpward; i>0; --i)
-            split(wholeBlockSizeExponent_- newAllocationSizeExponent-i);//split at that level
+            split(wholeBlockSizeExponent_- exponent-i);//split at that level
 
-        return allocateExponentSize(newAllocationSizeExponent);
+        return allocateExponentSize(exponent);
     }
 
     catch(bad_alloc exception)
     {
         size_t currentLargest=get_theCurrentLargestFreeBlockSize();
-        cerr<<"Error: Bad Alloc - lack of memory | Allocation request cannot be done because of lack of memory. The largest possible allocation currently is " << currentLargest << " you can deallocate some blocks in order to free some memory."<<endl;
+        cerr<<"Error: Bad Alloc - lack of memory | Allocation request cannot be done because of lack"
+            <<" of memory. The largest possible allocation currently is " << currentLargest
+            <<" you can deallocate some blocks in order to free some memory."<<endl;
         return NULL;
     }
 }
@@ -319,15 +344,18 @@ bool CustomAllocator:: deallocate(void* pointer)
     {
         if(pointer < bookkeepingOffset_)
         {
-            cerr<<"Warning: The deallocation had no effect | this block is used to store information about the CustomAllocator. It cannot be deallocated before the deallocation of the whole block"<<endl;
+            cerr<<"Warning: The deallocation had no effect | this block is used to store information"
+                << "about the CustomAllocator. It cannot be deallocated before the deallocation of the"
+                <<" whole block"<<endl;
             return 0;
         }
         else
         {
-            size_t blockIndex = get_indexOfFirstOfLevel((void**)pointer);
+            size_t blockIndex = get_blockIndex((void**)pointer);
             if(blockIndex==lastIndex_+1)
             {
-                cerr<<"Warning: The deallocation had no effect | attempt to free at address " <<&pointer << " where is no allocated memory."<<endl;
+                cerr<<"Warning: The deallocation had no effect | attempt to free at address "
+                    <<&pointer << " where is no allocated memory."<<endl;
                 return 0;
             }
             else
@@ -337,7 +365,8 @@ bool CustomAllocator:: deallocate(void* pointer)
                 // but it seems not an option
                 set_allocated(blockIndex,false);
                 set_split(blockIndex,false);
-                //          cout<<"Successful deallocation of "<<powerOfTwo(wholeBlockSizeExponent_ - blockLevelIndex(blockIndex))<<" bytes"<<endl;
+                //          cout<<"Successful deallocation of "<<powerOfTwo(wholeBlockSizeExponent_
+                //              <<- blockLevelIndex(blockIndex))<<" bytes"<<endl;
                 return 1;
             }
         }

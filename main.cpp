@@ -8,11 +8,10 @@ int main()
 {
     cout<<"Check if the allocator works correctly: "<<endl;
     size_t v;
-    cout<<"The size must be larger or equal to 2^14 in order to be reasonable to use buddy allocator."
-        <<endl<<"Enter the allocator size/(2^14): ";
+    cout<<"Enter the allocator size in bytes: ";
     cin>>v;
     cout<<endl;
-    CustomAllocator a (v*1024*16);
+    CustomAllocator a (v);
 
     //variables for the checks
     size_t numberOfAllocations=1;
